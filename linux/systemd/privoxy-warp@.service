@@ -1,0 +1,16 @@
+[Unit]
+Description=Privoxy HTTP bridge for WARP instance %i
+After=network-online.target microsocks-warp@%i.service
+Requires=microsocks-warp@%i.service
+PartOf=microsocks-warp@%i.service
+
+[Service]
+Type=simple
+User=privoxy
+Group=nogroup
+ExecStart=/usr/local/bin/warp-privoxy-start.sh %i
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

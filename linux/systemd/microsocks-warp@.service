@@ -1,0 +1,14 @@
+[Unit]
+Description=Microsocks for WARP instance %i
+After=network-online.target warp-instance@%i.service
+Requires=warp-instance@%i.service
+PartOf=warp-instance@%i.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/warp-microsocks-start.sh %i
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

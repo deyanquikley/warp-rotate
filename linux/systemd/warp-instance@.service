@@ -1,0 +1,13 @@
+[Unit]
+Description=WARP Multi Instance %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/warp-iface-start.sh %i
+ExecStop=/usr/local/bin/warp-iface-stop.sh %i
+
+[Install]
+WantedBy=multi-user.target
