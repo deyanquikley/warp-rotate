@@ -10,6 +10,7 @@ Rotate your public IP address using Cloudflare WARP for free. Works as a **SOCKS
 |------|----------|-------------|
 | `warp-rotate.sh` | Linux | All-in-one: setup, rotate, SOCKS5 proxy, enowxai integration |
 | `warp-rotate.ps1` | Windows | PowerShell version with same features |
+| `linux/` | Linux | Multi-instance systemd stack for WARP SOCKS + HTTP bridge pairs |
 
 ---
 
@@ -82,6 +83,105 @@ sudo ./warp-rotate.sh --enowxai-add   # Add WARP proxy to enowxai
 sudo ./warp-rotate.sh --enowxai-clear # Backup + clear + add WARP to enowxai
 sudo ./warp-rotate.sh --help            # Show help
 ```
+
+## 🐧 Linux Multi-Instance + HTTP Bridge (systemd)
+
+Use this mode if you want multiple WARP SOCKS listeners plus HTTP twins for HTTP-only clients such as 9router.
+
+This stack assumes you already have multiple WireGuard configs and interfaces prepared as `wgcf0` ... `wgcf8` under `/etc/wireguard/`.
+
+### What it provides
+
+- One WireGuard interface per instance: `wgcf0` ... `wgcf8`
+- One SOCKS listener per instance: `40001` ... `40009`
+- One HTTP listener per instance: `41001` ... `41009`
+- Deterministic mapping: `HTTP port = SOCKS port + 1000`
+- `systemd`-managed auto-start after reboot
+
+### Repo files
+
+- `linux/systemd/warp-instance@.service`
+- `linux/systemd/microsocks-warp@.service`
+- `linux/systemd/privoxy-warp@.service`
+- `linux/bin/warp-iface-start.sh`
+- `linux/bin/warp-iface-stop.sh`
+- `linux/bin/warp-microsocks-start.sh`
+- `linux/bin/warp-privoxy-start.sh`
+- `linux/tools/generate-privoxy-configs.sh`
+
+### Deployment flow
+
+Install dependencies first:
+
+```bash
+apt install -y wireguard-tools privoxy git make gcc
+curl -fsSL git.io/wgcf.sh | bash
+```
+
+Make sure `microsocks` exists at `/usr/local/bin/microsocks`. You can build it the same way the single-instance Linux script does:
+
+```bash
+tmpdir="$(mktemp -d)"
+git clone https://github.com/rofl0r/microsocks.git "$tmpdir/microsocks"
+make -C "$tmpdir/microsocks"
+sudo install -m755 "$tmpdir/microsocks/microsocks" /usr/local/bin/microsocks
+rm -rf "$tmpdir"
+```
+
+Install the helper scripts and unit files from this repo:
+
+```bash
+install -Dm755 linux/bin/warp-iface-start.sh /usr/local/bin/warp-iface-start.sh
+install -Dm755 linux/bin/warp-iface-stop.sh /usr/local/bin/warp-iface-stop.sh
+install -Dm755 linux/bin/warp-microsocks-start.sh /usr/local/bin/warp-microsocks-start.sh
+install -Dm755 linux/bin/warp-privoxy-start.sh /usr/local/bin/warp-privoxy-start.sh
+
+install -Dm644 linux/systemd/warp-instance@.service /etc/systemd/system/warp-instance@.service
+install -Dm644 linux/systemd/microsocks-warp@.service /etc/systemd/system/microsocks-warp@.service
+install -Dm644 linux/systemd/privoxy-warp@.service /etc/systemd/system/privoxy-warp@.service
+```
+
+Generate Privoxy configs from the stock distro config so each HTTP listener matches the live verified setup:
+
+```bash
+install -Dm755 linux/tools/generate-privoxy-configs.sh /usr/local/bin/generate-privoxy-configs.sh
+sudo /usr/local/bin/generate-privoxy-configs.sh --host-ip 192.168.0.187
+```
+
+Enable and start the stack:
+
+```bash
+sudo systemctl daemon-reload
+
+for i in {0..8}; do
+  sudo systemctl enable --now warp-instance@${i}.service
+  sudo systemctl enable --now microsocks-warp@${i}.service
+  sudo systemctl enable --now privoxy-warp@${i}.service
+done
+```
+
+### Port mapping
+
+| WARP instance | SOCKS | HTTP |
+|---|---:|---:|
+| `wgcf0` | `40001` | `41001` |
+| `wgcf1` | `40002` | `41002` |
+| `wgcf2` | `40003` | `41003` |
+| `wgcf3` | `40004` | `41004` |
+| `wgcf4` | `40005` | `41005` |
+| `wgcf5` | `40006` | `41006` |
+| `wgcf6` | `40007` | `41007` |
+| `wgcf7` | `40008` | `41008` |
+| `wgcf8` | `40009` | `41009` |
+
+### Verify a pair
+
+```bash
+curl --socks5-hostname 192.168.0.187:40001 https://api.ipify.org
+curl --proxy http://192.168.0.187:41001 https://api.ipify.org
+```
+
+If the two commands return the same public IP, the HTTP bridge is following the same WARP egress as the SOCKS port.
 
 ---
 
@@ -247,7 +347,7 @@ rotate command
 | **Nginx** | ✅ Not affected |
 | **DNS** | Restored after WARP start (no DNS leak) |
 | **Reversible** | `--down` / `-Down` stops everything cleanly |
-| **Auto-start** | No — does NOT persist after reboot |
+| **Auto-start** | Single-instance root script: no. Multi-instance `systemd` stack under `linux/`: yes |
 | **enowxai backup** | `--enowxai-clear` always backs up before clearing |
 
 ---
